@@ -1,0 +1,91 @@
+services:
+    ######################################################################################
+    # Trivy Service (see https://aquasecurity.github.io/trivy/latest/getting-started/installation/)
+    #
+    # ** Pre-requisites
+    # -  Install Trivy server/client 
+    #    ```sh
+    #      brew install trivy
+    #    ```
+    #
+    #
+    # ** Customizable Environment `ENV_NAME=ENVVALUE`
+    #
+    # 
+    # ** Notes
+    # -  Trivy as a server mode serving REST API at port 4954
+    # -  Test the connectivity using :
+    #    ```sh
+    #      curl http://localhost:4954/healthz
+    #    ```
+    # -  Test the connectivity using :
+    #    ```sh
+    #      curl http://localhost:4954/version
+    #    ```
+    # -  Test image scan (scans the image `flink-job-fraud-demo:latest` on your local docker) :
+    #    ```sh
+    #      trivy image --server http://localhost:4954 flink-job-fraud-demo:latest
+    #    ```
+    #
+    ######################################################################################
+    trivy-server-service:
+        image: aquasec/trivy:latest
+        container_name: trivy-server-service
+        entrypoint: trivy server --listen 0.0.0.0:4954
+        ports:
+            - 4954:4954
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+            - ~/Library/Caches/:/root/.cache/
+        healthcheck:
+            test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:4954/healthz"]
+            interval: 10s
+            retries: 5
+    ######################################################################################
+    # Trivy Explorer Service (see https://github.com/dbsystel/trivy-vulnerability-explorer)
+    #
+    # ** Pre-requisites
+    # -  Build Trivy Vulnerability Explorer Container
+    #    ```sh
+    #      sh startup.sh
+    #    ```
+    #
+    #
+    # ** Customizable Environment `ENV_NAME=ENVVALUE`
+    # -  
+    # 
+    # ** Notes
+    # -  Access the explorer web-portal at `http://localhost:8080`
+    # -  Test demo report `http://localhost:8080/#/?url=trivy/reports/alpine-3.9.2.json`
+    # -  Test image scan (scans the image `flink-job-fraud-demo:latest` on your local docker) :
+    #    ```sh
+    #      docker exec -it trivy-explorer-service trivy image \
+    #        -f json -o /app/dist/trivy/reports/flink-job-fraud-demo-latest.json \
+    #        --server http://trivy-server-service:4954 flink-job-fraud-demo:latest
+    #    ```
+    #    Then view the report in your browser using URL : 
+    #    `http://localhost:8080/#/?url=trivy/reports/flink-job-fraud-demo-latest.json`
+    #
+    ######################################################################################
+    trivy-explorer-service:
+        build:
+            context: ./
+            dockerfile: ./src/main/docker/trivy-vulnerability-explorer/Dockerfile
+        image: credio/trivy-vulnerability-explorer:latest
+        container_name: trivy-explorer-service
+        ports:
+            - 8080:8080
+        env_file:
+            - .env
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+            - ./data/trivy/reports:/app/dist/trivy/reports
+        healthcheck:
+            test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080"]
+            interval: 10s
+            retries: 5
+        depends_on:
+            trivy-server-service:
+                condition: service_healthy
+        links: 
+            - trivy-server-service
